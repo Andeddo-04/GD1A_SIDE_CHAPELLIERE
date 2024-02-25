@@ -2,7 +2,6 @@ using UnityEngine;
 
 public class ControlesPlayer : MonoBehaviour
 {
-    // Initialisation des contrôles
     [SerializeField]
     private KeyCode jumpKey = KeyCode.Space;
 
@@ -19,116 +18,107 @@ public class ControlesPlayer : MonoBehaviour
     private Vector3 velocity = Vector3.zero;
 
     [SerializeField]
-    private bool isGrounded, isTouchingLeftWall, isTouchingRightWall;
+    private bool isGrounded, isTouchingLeftWall, isTouchingRightWall, isJumping = false;
+    
+    public bool isClimbing;
 
     [SerializeField]
-    private bool isJumping = false;
-
-    [SerializeField]
-    private float moveSpeed, jumpForce, wallJumpForceX, wallJumpForceY;
+    private float moveSpeed, jumpForce, wallJumpForce;
 
     [SerializeField]
     private Transform groundCheck, leftWallCheck, rightWallCheck;
 
     [SerializeField]
-    private float groundCheckRadius, leftWallCheckRadius, rightWallCheckRadius;
+    private float groundCheckRadius, wallCheckRadius;
 
     [SerializeField]
-    private LayerMask groundCollisionLayer;
+    private LayerMask groundCollisionLayer, wallCollisionLayer;
 
-    [SerializeField]
-    private LayerMask wallCollisionLayer;
+    private bool hasJumpedFromLeftWall = false;
+    private bool hasJumpedFromRightWall = false;
 
-    [SerializeField]
-    private Transform wallCheck; // Ajout de la vérification pour le wall jump
+    private Vector2 lastMoveDirection = Vector2.right; // Store last move direction
 
-    [SerializeField]
-    private float wallCheckRadius; // Distance pour vérifier le mur
-
-    [SerializeField]
-    private bool isTouchingWall = false;
-
-    // Méthode appelée à chaque frame
     void Update()
     {
-        // Vérifier si le personnage est au sol
         isGrounded = Physics2D.OverlapCircle(groundCheck.position, groundCheckRadius, groundCollisionLayer);
+        isTouchingLeftWall = Physics2D.OverlapCircle(leftWallCheck.position, wallCheckRadius, wallCollisionLayer);
+        isTouchingRightWall = Physics2D.OverlapCircle(rightWallCheck.position, wallCheckRadius, wallCollisionLayer);
 
-        // Vérifier si le personnage touche le mur
-        isTouchingLeftWall = Physics2D.OverlapCircle(leftWallCheck.position, leftWallCheckRadius, wallCollisionLayer);
-
-        isTouchingRightWall = Physics2D.OverlapCircle(rightWallCheck.position, rightWallCheckRadius, wallCollisionLayer);
-
-        if (isTouchingLeftWall || isTouchingRightWall)
-        {
-            isTouchingWall = true;
-        }
-        else
-        {
-            isTouchingWall = false;
-        }
-
-        // Obtenir l'entrée horizontale (gauche/droite)
         float horizontalMovement = Input.GetAxis("Horizontal") * moveSpeed * Time.deltaTime;
 
-        MovePlayer(horizontalMovement);
+        float verticalMovement = Input.GetAxis("Vertical") * moveSpeed * Time.deltaTime;
 
-        Flip(characterSprite.velocity.x);
+        MovePlayer(horizontalMovement, verticalMovement);
 
-        float characterVelocity = Mathf.Abs(characterSprite.velocity.x);
-
-        animator.SetFloat("Speed", characterVelocity);
-
-        // Vérifier si la touche de saut est enfoncée et si le personnage est au sol ou touche le mur
-        if (Input.GetKeyDown(jumpKey) && (isGrounded || isTouchingWall))
+        // Flip the character based on last move direction
+        if (horizontalMovement != 0)
         {
-            // Si le joueur touche le mur, effectuer le wall jump
-            if (isTouchingWall && isTouchingLeftWall)
+            lastMoveDirection = new Vector2(horizontalMovement, 0f);
+            Flip();
+        }
+
+        animator.SetFloat("Speed", Mathf.Abs(horizontalMovement));
+        animator.SetBool("isJumping", isJumping);
+        animator.SetBool("isClimbing", isClimbing);
+
+        if (Input.GetButtonDown("Jump"))
+        {
+            if ((isTouchingLeftWall && !hasJumpedFromLeftWall) && !isClimbing)
             {
-                // Calculer la composante y de la vélocité pour obtenir une trajectoire courbée
-                float jumpDirectionY = Mathf.Sqrt(2f * wallJumpForceY * Mathf.Abs(Physics2D.gravity.y)); 
-
-                // Changer la direction du personnage en diagonale courbée vers le haut et vers la droite
-                characterSprite.velocity = new Vector2(wallJumpForceX, jumpDirectionY);
+                WallJump(Vector2.right);
+                hasJumpedFromLeftWall = true;
+                hasJumpedFromRightWall = false; // Reset wall jump opposite direction
             }
-            else if (isTouchingWall && isTouchingRightWall)
+            else if ((isTouchingRightWall && !hasJumpedFromRightWall) && !isClimbing)
             {
-                // Calculer la composante y de la vélocité pour obtenir une trajectoire courbée
-                float jumpDirectionY = Mathf.Sqrt(2f * wallJumpForceY * Mathf.Abs(Physics2D.gravity.y));
-
-                // Changer la direction du personnage en diagonale courbée vers le haut et vers la gauche
-                characterSprite.velocity = new Vector2(-wallJumpForceX, jumpDirectionY);
+                WallJump(Vector2.left);
+                hasJumpedFromRightWall = true;
+                hasJumpedFromLeftWall = false; // Reset wall jump opposite direction
             }
+            else if (isGrounded && !isClimbing)
+            {
+                characterSprite.velocity = new Vector2(characterSprite.velocity.x, jumpForce);
+                hasJumpedFromLeftWall = false;
+                hasJumpedFromRightWall = false;
+                
+            }
+            
+        }
+        
+    }
 
-            isJumping = true;
-            animator.SetBool("isJumping", true);
+    void WallJump(Vector2 direction)
+    {
+        characterSprite.velocity = new Vector2(wallJumpForce * direction.x, jumpForce);
+    }
+
+    void MovePlayer(float _horizontalMovement, float _verticalMovement)
+    {
+        if (!isClimbing)
+        {
+            Vector3 targetVelocity = new Vector2(_horizontalMovement, characterSprite.velocity.y);
+            characterSprite.velocity = Vector3.SmoothDamp(characterSprite.velocity, targetVelocity, ref velocity, 0.05f);
+        }
+
+        else
+        {
+            // d�placement verticale
+            Vector3 targetVelocity = new Vector2(0, _verticalMovement);
+            characterSprite.velocity = Vector3.SmoothDamp(characterSprite.velocity, targetVelocity, ref velocity, 0.05f);
         }
     }
 
-    void MovePlayer(float _horizontalMovement) // _horizontalMovement => convention de nommage
+    void Flip()
     {
-        // Définir la vitesse horizontale du personnage en fonction de l'entrée
-        Vector3 targetVelocity = new Vector2(_horizontalMovement, characterSprite.velocity.y);
-        characterSprite.velocity = Vector3.SmoothDamp(characterSprite.velocity, targetVelocity, ref velocity, 0.05f);
-
-        if (isJumping == true)
-        {
-            // Appliquer une force vers le haut pour simuler le saut
-            characterSprite.AddForce(new Vector2(0f, jumpForce));
-            isJumping = false;
-            animator.SetBool("isJumping", false);
-        }
-    }
-
-    void Flip(float _velocity)
-    {
-        if (_velocity > 0.1f)
-        {
-            spriteRenderer.flipX = true;
-        }
-        else if (_velocity < 0.1f)
+        if (lastMoveDirection.x < 0)
         {
             spriteRenderer.flipX = false;
         }
+        else if (lastMoveDirection.x > 0)
+        {
+            spriteRenderer.flipX = true;
+        }
     }
+
 }
